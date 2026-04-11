@@ -13,7 +13,7 @@ import { JwtOrAiKeyGuard } from '../auth/guards/jwt-or-ai-key.guard';
 
 @ApiTags('Cameras')
 @Controller('cameras')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrAiKeyGuard)
 @ApiBearerAuth()
 export class CamerasController {
   constructor(private camerasService: CamerasService) {}
@@ -21,7 +21,6 @@ export class CamerasController {
   // ─── CRUD ────────────────────────────────────────────────────────
 
   @Get()
-  @UseGuards(JwtOrAiKeyGuard)  // Override: allows AI engine (X-AI-Key) + JWT users
   @ApiOperation({ summary: 'List all active cameras' })
   async findAll() {
     return this.camerasService.findAll();
