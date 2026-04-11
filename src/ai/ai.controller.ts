@@ -23,6 +23,18 @@ import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiKeyGuard } from '../auth/guards/ai-key.guard';
 
+interface UploadedFileDto {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  destination: string;
+  filename: string;
+  path: string;
+  buffer: Buffer;
+}
+
 const PHOTOS_DIR = process.env.PHOTOS_DIR || '/data/photos';
 const SNAPSHOTS_DIR = process.env.SNAPSHOT_DIR || '/snapshots';
 
@@ -105,7 +117,7 @@ export class AiController {
   )
   async uploadFacePhoto(
     @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedFileDto,
   ) {
     if (!file) throw new NotFoundException('No file uploaded');
     const photoPath = join(PHOTOS_DIR, file.filename);
@@ -232,7 +244,7 @@ export class AiController {
   )
   async reportDetection(
     @Body() body: any,
-    @UploadedFile() snapshot?: Express.Multer.File,
+    @UploadedFile() snapshot?: UploadedFileDto,
   ) {
     const snapshotPath = snapshot ? snapshot.path : undefined;
     return this.aiService.createDetection({
