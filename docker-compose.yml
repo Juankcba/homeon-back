@@ -83,7 +83,7 @@ services:
   # El build de la imagen tarda ~10 min por la compilación de dlib.
   ai-engine:
     build:
-      context: ../domotic-ai
+      context: ../homeon-ai-back
       dockerfile: Dockerfile
     container_name: homeon-ai
     restart: unless-stopped
