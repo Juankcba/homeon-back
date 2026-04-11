@@ -4,9 +4,10 @@
 # IMPORTANTE: El backend usa network_mode: host para alcanzar
 # dispositivos en la LAN (cámaras Tapo, Hue Bridge, MQTT).
 #
-# Esto significa que los puertos del backend (3005) se exponen
-# directamente en la VM. PostgreSQL y Redis también quedan en
-# localhost pero aislados a 127.0.0.1.
+# Volúmenes compartidos:
+#   ai-snapshots  → Python AI engine escribe / NestJS sirve
+#   ai-photos     → fotos de caras (NestJS escribe / AI lee)
+#   ai-models     → modelos descargados (YOLOv8, EasyOCR) – se cachean
 # ═══════════════════════════════════════════════════════════
 
 services:
@@ -53,9 +54,7 @@ services:
       dockerfile: Dockerfile
     container_name: homeon-backend
     restart: unless-stopped
-    # HOST NETWORK = acceso directo a la LAN
-    # El container comparte la red del host (la VM Ubuntu)
-    # Así puede hacer HTTP a 192.168.x.x (cámaras, Hue, MQTT)
+    # HOST NETWORK = acceso directo a la LAN (cámaras, Hue, portón)
     network_mode: host
     depends_on:
       postgres:
@@ -70,9 +69,43 @@ services:
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6380
       NODE_ENV: production
+      SNAPSHOT_DIR: /snapshots
+      PHOTOS_DIR: /data/photos
+    volumes:
+      - ai-snapshots:/snapshots
+      - ai-photos:/data/photos
+
+  # ─── Python AI Engine ───────────────────────────────────
+  # Procesa streams RTSP, detecta personas/rostros/patentes y
+  # reporta resultados al backend vía HTTP con X-AI-Key.
+  #
+  # NOTA: La primera vez descarga modelos (~500 MB).
+  # El build de la imagen tarda ~10 min por la compilación de dlib.
+  ai-engine:
+    build:
+      context: ../domotic-ai
+      dockerfile: Dockerfile
+    container_name: homeon-ai
+    restart: unless-stopped
+    # HOST NETWORK: necesita acceder a las cámaras RTSP en la LAN
+    # y también hacer HTTP a localhost:3005 (backend)
+    network_mode: host
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://127.0.0.1:3005
+      AI_API_KEY: ${AI_API_KEY:-homeon-ai-secret-2026}
+      SNAPSHOT_DIR: /snapshots
+      FRAME_INTERVAL: ${AI_FRAME_INTERVAL:-5}
+      YOLO_CONF: ${AI_YOLO_CONF:-0.45}
+      FACE_TOLERANCE: ${AI_FACE_TOLERANCE:-0.55}
+      OCR_LANGS: es,en
+    volumes:
+      - ai-snapshots:/snapshots
+      - ai-photos:/data/photos:ro      # AI reads photos (face encodings)
+      - ai-models:/root/.cache         # cache YOLOv8 + EasyOCR models
 
   # ─── Cloudflare Tunnel ──────────────────────────────────
-  # Usar el tunnel existente en la VM.
   # Agregar en Cloudflare Zero Trust dashboard:
   #   Public hostname: api.homeone.bladelink.company
   #   Service: http://localhost:3005
@@ -81,4 +114,10 @@ volumes:
   pgdata:
     driver: local
   redisdata:
+    driver: local
+  ai-snapshots:
+    driver: local
+  ai-photos:
+    driver: local
+  ai-models:
     driver: local
