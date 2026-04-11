@@ -1,5 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CamerasService } from '../cameras/cameras.service';
 import { LightsService } from '../lights/lights.service';
 import { GateService } from '../gate/gate.service';
@@ -7,9 +7,12 @@ import { AiService } from '../ai/ai.service';
 import { EventsService } from '../events/events.service';
 import { AutomationsService } from '../automations/automations.service';
 import { DevicesService } from '../devices/devices.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Dashboard')
 @Controller('dashboard')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class DashboardController {
   constructor(
     private camerasService: CamerasService,

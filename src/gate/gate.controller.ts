@@ -1,10 +1,13 @@
-import { Controller, Get, Post, Put, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Body, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GateService } from './gate.service';
 import { GateControllerService } from '../integrations/gate-controller/gate-controller.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Gate')
 @Controller('gate')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class GateController {
   constructor(
     private gateService: GateService,

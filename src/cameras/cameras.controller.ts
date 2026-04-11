@@ -1,19 +1,19 @@
 import {
   Controller, Get, Post, Put, Delete, Param, Body, Query,
-  HttpCode, HttpStatus, Res, Header,
+  HttpCode, HttpStatus, Res, UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
-  ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBody, ApiProduces,
+  ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBody, ApiProduces, ApiBearerAuth,
 } from '@nestjs/swagger';
 import { CamerasService } from './cameras.service';
 import { CameraCreateDto, CameraUpdateDto, CameraTestResultDto } from './dto/camera.dto';
-
-// TODO: Re-enable JwtAuthGuard on write endpoints when auth is fully implemented
-// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Cameras')
 @Controller('cameras')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class CamerasController {
   constructor(private camerasService: CamerasService) {}
 
