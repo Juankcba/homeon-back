@@ -1,12 +1,10 @@
-version: "3.9"
-
 # ═══════════════════════════════════════════════════════════
 # HomeOn - Docker Compose
 # ═══════════════════════════════════════════════════════════
 # IMPORTANTE: El backend usa network_mode: host para alcanzar
 # dispositivos en la LAN (cámaras Tapo, Hue Bridge, MQTT).
 #
-# Esto significa que los puertos del backend (3001) se exponen
+# Esto significa que los puertos del backend (3005) se exponen
 # directamente en la VM. PostgreSQL y Redis también quedan en
 # localhost pero aislados a 127.0.0.1.
 # ═══════════════════════════════════════════════════════════
@@ -74,12 +72,12 @@ services:
       NODE_ENV: production
 
   # ─── Cloudflare Tunnel ──────────────────────────────────
-  # Expone el backend (puerto 3001) al exterior via Cloudflare
+  # Expone el backend (puerto 3005) al exterior via Cloudflare
   # sin abrir puertos en el router.
   #
   # Configurar en Cloudflare Zero Trust dashboard:
-  #   Public hostname: api.tu-dominio.com
-  #   Service: http://localhost:3001
+  #   Public hostname: api.homeone.bladelink.company
+  #   Service: http://localhost:3005
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: homeon-tunnel

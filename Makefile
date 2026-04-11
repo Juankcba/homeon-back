@@ -47,7 +47,7 @@ ps: status
 
 health: ## Check health of all services
 	@echo "$(CYAN)Backend:$(RESET)"
-	@curl -sf http://localhost:3001/health 2>/dev/null && echo " ✓ OK" || echo " ✗ DOWN"
+	@curl -sf http://localhost:3005/health 2>/dev/null && echo " ✓ OK" || echo " ✗ DOWN"
 	@echo "$(CYAN)PostgreSQL:$(RESET)"
 	@docker compose exec -T postgres pg_isready -U homeon 2>/dev/null && echo " ✓ OK" || echo " ✗ DOWN"
 	@echo "$(CYAN)Redis:$(RESET)"
