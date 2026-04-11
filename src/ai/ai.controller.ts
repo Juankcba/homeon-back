@@ -20,8 +20,7 @@ import { existsSync } from 'fs';
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiConsumes } from '@nestjs/swagger';
 import { AiService } from './ai.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AiKeyGuard } from '../auth/guards/ai-key.guard';
+import { JwtOrAiKeyGuard } from '../auth/guards/jwt-or-ai-key.guard';
 
 interface UploadedFileDto {
   fieldname: string;
@@ -40,7 +39,7 @@ const SNAPSHOTS_DIR = process.env.SNAPSHOT_DIR || '/snapshots';
 
 @ApiTags('AI Recognition')
 @Controller('ai')
-@UseGuards(JwtAuthGuard)          // Default: all endpoints require JWT
+@UseGuards(JwtOrAiKeyGuard)       // All endpoints accept JWT OR AI key
 @ApiBearerAuth()
 export class AiController {
   constructor(private aiService: AiService) {}
@@ -93,7 +92,7 @@ export class AiController {
 
   /** Upload a face photo – accessible by both JWT users AND AI service */
   @Post('faces/:id/photo')
-  @UseGuards(AiKeyGuard)   // Override: uses AI key (Python service uploads photos)
+
   @ApiOperation({ summary: 'Upload face photo' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
@@ -127,7 +126,7 @@ export class AiController {
 
   /** Serve a face photo – accessible by AI service (needs photo to build encodings) */
   @Get('faces/:id/photo')
-  @UseGuards(AiKeyGuard)
+
   @ApiOperation({ summary: 'Serve face photo for encoding' })
   async getFacePhoto(@Param('id') id: string, @Res() res: Response) {
     const face = await this.aiService.getFace(id);
@@ -236,7 +235,7 @@ export class AiController {
    * Uses X-AI-Key header (not JWT) so the Python service can call it.
    */
   @Post('report')
-  @UseGuards(AiKeyGuard)   // Override default JWT guard
+
   @ApiOperation({ summary: 'Report detection from AI engine (internal)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(

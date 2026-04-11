@@ -8,7 +8,6 @@ import {
 } from '@nestjs/swagger';
 import { CamerasService } from './cameras.service';
 import { CameraCreateDto, CameraUpdateDto, CameraTestResultDto } from './dto/camera.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtOrAiKeyGuard } from '../auth/guards/jwt-or-ai-key.guard';
 
 @ApiTags('Cameras')
