@@ -1,12 +1,20 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
+export type PlateFormat = 'old' | 'mercosur' | 'unknown';
+
 @Entity('authorized_vehicles')
 export class AuthorizedVehicle {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ unique: true })
   plate: string;
+
+  @Column({
+    type: 'varchar',
+    default: 'unknown',
+  })
+  plateFormat: PlateFormat; // old (ABC 123), mercosur (AB 123 CD), unknown
 
   @Column({ nullable: true })
   owner: string;
@@ -15,7 +23,7 @@ export class AuthorizedVehicle {
   userId: string;
 
   @Column({ default: 'auto' })
-  type: string; // auto, moto, camion
+  type: string; // auto, moto, camion, camioneta
 
   @Column({ nullable: true })
   brand: string;

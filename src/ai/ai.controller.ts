@@ -152,7 +152,7 @@ export class AiController {
   }
 
   @Post('vehicles')
-  @ApiOperation({ summary: 'Register authorized vehicle' })
+  @ApiOperation({ summary: 'Register authorized vehicle (validates plate format)' })
   async createVehicle(@Body() data: any) {
     return this.aiService.createVehicle(data);
   }
@@ -169,6 +169,20 @@ export class AiController {
     return this.aiService.deleteVehicle(id);
   }
 
+  /** Validate a plate string (format check + duplicate check) */
+  @Post('vehicles/validate-plate')
+  @ApiOperation({ summary: 'Validate a plate format and check registration' })
+  async validatePlate(@Body() body: { plate: string }) {
+    return this.aiService.validatePlate(body.plate || '');
+  }
+
+  /** Get plate-specific statistics */
+  @Get('plates/stats')
+  @ApiOperation({ summary: 'Get plate detection statistics' })
+  async getPlateStats() {
+    return this.aiService.getPlateStats();
+  }
+
   // ─── Detections ──────────────────────────────────────────────────────
 
   @Get('detections')
@@ -176,12 +190,14 @@ export class AiController {
   @ApiQuery({ name: 'type', required: false })
   @ApiQuery({ name: 'authorized', required: false, type: Boolean })
   @ApiQuery({ name: 'cameraId', required: false })
+  @ApiQuery({ name: 'plateFormat', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getDetections(
     @Query('type') type?: string,
     @Query('authorized') authorized?: string,
     @Query('cameraId') cameraId?: string,
+    @Query('plateFormat') plateFormat?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -189,6 +205,7 @@ export class AiController {
       type,
       authorized: authorized !== undefined ? authorized === 'true' : undefined,
       cameraId,
+      plateFormat,
       page,
       limit,
     });
