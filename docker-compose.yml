@@ -1,0 +1,96 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════
+# HomeOn - Docker Compose
+# ═══════════════════════════════════════════════════════════
+# IMPORTANTE: El backend usa network_mode: host para alcanzar
+# dispositivos en la LAN (cámaras Tapo, Hue Bridge, MQTT).
+#
+# Esto significa que los puertos del backend (3001) se exponen
+# directamente en la VM. PostgreSQL y Redis también quedan en
+# localhost pero aislados a 127.0.0.1.
+# ═══════════════════════════════════════════════════════════
+
+services:
+  # ─── PostgreSQL ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: homeon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-homeon}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_DATABASE:-homeon}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-homeon}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: homeon-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── NestJS Backend ─────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: homeon-backend
+    restart: unless-stopped
+    # HOST NETWORK = acceso directo a la LAN
+    # El container comparte la red del host (la VM Ubuntu)
+    # Así puede hacer HTTP a 192.168.x.x (cámaras, Hue, MQTT)
+    network_mode: host
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      NODE_ENV: production
+
+  # ─── Cloudflare Tunnel ──────────────────────────────────
+  # Expone el backend (puerto 3001) al exterior via Cloudflare
+  # sin abrir puertos en el router.
+  #
+  # Configurar en Cloudflare Zero Trust dashboard:
+  #   Public hostname: api.tu-dominio.com
+  #   Service: http://localhost:3001
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: homeon-tunnel
+    restart: unless-stopped
+    network_mode: host
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
