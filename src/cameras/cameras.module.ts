@@ -5,11 +5,13 @@ import { CamerasService } from './cameras.service';
 import { CamerasGateway } from './cameras.gateway';
 import { CameraStreamGateway } from './stream.gateway';
 import { Camera } from './entities/camera.entity';
+import { JwtOrAiKeyGuard } from '../auth/guards/jwt-or-ai-key.guard';
+import { AiKeyGuard } from '../auth/guards/ai-key.guard';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Camera])],
   controllers: [CamerasController],
-  providers: [CamerasService, CamerasGateway, CameraStreamGateway],
+  providers: [CamerasService, CamerasGateway, CameraStreamGateway, JwtOrAiKeyGuard, AiKeyGuard],
   exports: [CamerasService, CamerasGateway],
 })
 export class CamerasModule implements OnModuleInit {
