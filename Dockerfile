@@ -20,6 +20,9 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# ffmpeg para RTSP snapshots de cámaras Tapo
+RUN apk add --no-cache ffmpeg
+
 # Security: non-root user
 RUN addgroup -S homeon && adduser -S homeon -G homeon
 
