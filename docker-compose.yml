@@ -72,20 +72,10 @@ services:
       NODE_ENV: production
 
   # ─── Cloudflare Tunnel ──────────────────────────────────
-  # Expone el backend (puerto 3005) al exterior via Cloudflare
-  # sin abrir puertos en el router.
-  #
-  # Configurar en Cloudflare Zero Trust dashboard:
+  # Usar el tunnel existente en la VM.
+  # Agregar en Cloudflare Zero Trust dashboard:
   #   Public hostname: api.homeone.bladelink.company
   #   Service: http://localhost:3005
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: homeon-tunnel
-    restart: unless-stopped
-    network_mode: host
-    command: tunnel run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
 
 volumes:
   pgdata:
