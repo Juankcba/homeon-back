@@ -55,6 +55,12 @@ export class AlarmController {
     return this.alarmService.discoverDevices();
   }
 
+  @Get('tuya/diagnostic/:deviceId')
+  @ApiOperation({ summary: 'Full diagnostic dump of a Tuya device (DPs, functions, sub-devices)' })
+  async tuyaDiagnostic(@Param('deviceId') deviceId: string) {
+    return this.tuyaService.getDeviceDiagnostic(deviceId);
+  }
+
   // ─── Alarm CRUD ────────────────────────────────────────────────────────
 
   @Get()

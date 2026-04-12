@@ -350,30 +350,126 @@ export class TuyaService implements OnModuleInit {
     return { success: true, result };
   }
 
+  /** Get the specification/functions of a device (what DPs it supports) */
+  async getDeviceFunctions(deviceId: string): Promise<any> {
+    try {
+      return await this.apiRequest('GET', `/v1.0/devices/${deviceId}/functions`);
+    } catch (err) {
+      this.logger.debug(`Functions endpoint failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  /** Get device specification (DPs schema) */
+  async getDeviceSpecification(deviceId: string): Promise<any> {
+    try {
+      return await this.apiRequest('GET', `/v1.0/devices/${deviceId}/specifications`);
+    } catch (err) {
+      this.logger.debug(`Specifications endpoint failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  /** Get sub-devices of a gateway (sensors, sirens, etc.) */
+  async getSubDevices(gatewayId: string): Promise<TuyaDeviceInfo[]> {
+    try {
+      const result = await this.apiRequest<TuyaDeviceInfo[]>(
+        'GET',
+        `/v1.0/devices/${gatewayId}/sub-devices`,
+      );
+      return Array.isArray(result) ? result : [];
+    } catch (err) {
+      this.logger.debug(`Sub-devices endpoint failed: ${err.message}`);
+      return [];
+    }
+  }
+
+  /** Get a full diagnostic dump for a device — used to discover DPs */
+  async getDeviceDiagnostic(deviceId: string): Promise<Record<string, any>> {
+    const [info, status, functions, spec, subDevices] = await Promise.allSettled([
+      this.getDeviceInfo(deviceId),
+      this.getDeviceStatus(deviceId).catch(() => []),
+      this.getDeviceFunctions(deviceId),
+      this.getDeviceSpecification(deviceId),
+      this.getSubDevices(deviceId),
+    ]);
+
+    return {
+      info: info.status === 'fulfilled' ? info.value : null,
+      status: status.status === 'fulfilled' ? status.value : [],
+      functions: functions.status === 'fulfilled' ? functions.value : null,
+      specification: spec.status === 'fulfilled' ? spec.value : null,
+      subDevices: subDevices.status === 'fulfilled' ? subDevices.value : [],
+    };
+  }
+
   // ─── Alarm-specific helpers ───────────────────────────────────────────
 
   /**
-   * Alarm modes for generic Tuya WiFi alarm panels.
-   * DP code: 'master_mode'
-   * Values: 'arm' | 'disarm' | 'home' | 'sos'
+   * Set alarm mode. Tries multiple DP codes since different models use
+   * different codes: master_mode, switch_alarm, alarm_switch, etc.
    */
   async setAlarmMode(deviceId: string, mode: 'arm' | 'disarm' | 'home' | 'sos') {
-    return this.sendCommand(deviceId, [{ code: 'master_mode', value: mode }]);
+    // Try the known DP codes for alarm gateways
+    const codesToTry = ['master_mode', 'switch_alarm', 'alarm_state_mode'];
+    let lastError: Error | null = null;
+
+    for (const code of codesToTry) {
+      try {
+        const result = await this.sendCommand(deviceId, [{ code, value: mode }]);
+        this.logger.debug(`Alarm mode set via DP code: ${code} = ${mode}`);
+        return result;
+      } catch (err) {
+        lastError = err;
+        this.logger.debug(`DP code '${code}' failed: ${err.message}`);
+      }
+    }
+
+    // If string modes fail, try boolean (some use switch_alarm = true/false)
+    if (mode === 'arm' || mode === 'disarm') {
+      try {
+        const result = await this.sendCommand(deviceId, [
+          { code: 'switch_alarm', value: mode === 'arm' },
+        ]);
+        this.logger.debug(`Alarm mode set via boolean switch_alarm = ${mode === 'arm'}`);
+        return result;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw lastError || new Error('Could not set alarm mode — no compatible DP found');
   }
 
-  /** Get alarm panel status including mode, sensors, battery */
+  /** Get alarm panel status — handles gateways that may not have standard DPs */
   async getAlarmStatus(deviceId: string) {
-    const statuses = await this.getDeviceStatus(deviceId);
+    let statuses: TuyaDeviceStatus[] = [];
+    try {
+      statuses = await this.getDeviceStatus(deviceId);
+    } catch (err) {
+      this.logger.debug(`getDeviceStatus failed for ${deviceId}: ${err.message}`);
+    }
+
     const statusMap: Record<string, any> = {};
     for (const s of statuses) {
       statusMap[s.code] = s.value;
     }
 
+    // Detect mode from various possible DP codes
+    const mode =
+      statusMap['master_mode'] ||
+      statusMap['alarm_state_mode'] ||
+      (statusMap['switch_alarm'] === true ? 'arm' : statusMap['switch_alarm'] === false ? 'disarm' : null) ||
+      'unknown';
+
     return {
-      mode: statusMap['master_mode'] || 'unknown',
-      alarmActive: statusMap['alarm_state'] === true,
-      alarmSound: statusMap['alarm_volume'] ?? null,
-      battery: statusMap['battery_percentage'] ?? null,
+      mode,
+      alarmActive:
+        statusMap['alarm_state'] === true ||
+        statusMap['alarm_active'] === true ||
+        statusMap['alarm_msg'] !== undefined,
+      alarmSound: statusMap['alarm_volume'] ?? statusMap['alarm_ringtone'] ?? null,
+      battery: statusMap['battery_percentage'] ?? statusMap['va_battery'] ?? null,
       tamper: statusMap['temper_alarm'] === true,
       statuses,
     };
@@ -381,7 +477,14 @@ export class TuyaService implements OnModuleInit {
 
   /** Trigger or stop the siren manually */
   async triggerSiren(deviceId: string, active: boolean) {
-    return this.sendCommand(deviceId, [{ code: 'alarm_state', value: active }]);
+    // Try multiple known siren DP codes
+    const codesToTry = ['alarm_state', 'alarm_active', 'muffling'];
+    for (const code of codesToTry) {
+      try {
+        return await this.sendCommand(deviceId, [{ code, value: active }]);
+      } catch {}
+    }
+    throw new Error('Could not control siren — no compatible DP found');
   }
 
   // ─── Health check ─────────────────────────────────────────────────────
