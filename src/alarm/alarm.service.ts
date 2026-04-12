@@ -44,14 +44,9 @@ export class AlarmService {
   /** Discover alarm devices from Tuya and return them */
   async discoverDevices() {
     const devices = await this.tuyaService.getDevices();
-    // Filter alarm-category devices (Tuya category 'mal' = alarm host)
-    const alarms = devices.filter(
-      (d) =>
-        d.category === 'mal' ||
-        d.category === 'ylkg' ||
-        d.product_name?.toLowerCase().includes('alarm'),
-    );
-    return alarms.map((d) => ({
+    // Return ALL devices — the user picks which one is the alarm from the UI.
+    // Tuya categories for alarms vary widely: mal, ylkg, ywbj, sj, ms, etc.
+    return devices.map((d) => ({
       tuyaDeviceId: d.id,
       name: d.name,
       model: d.product_name,

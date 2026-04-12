@@ -262,14 +262,66 @@ export class TuyaService implements OnModuleInit {
 
   // ─── Device operations ────────────────────────────────────────────────
 
-  /** List all devices linked to the Tuya cloud project */
+  /** List all devices linked to the Tuya cloud project.
+   *  Tries multiple API endpoints because the available one depends on
+   *  the project type and how devices were linked. */
   async getDevices(): Promise<TuyaDeviceInfo[]> {
-    // Get user's devices via the "devices" API
-    const result = await this.apiRequest<{ list: TuyaDeviceInfo[] }>(
-      'GET',
-      '/v1.0/iot-01/associated-users/devices',
-    );
-    return result?.list || [];
+    // Strategy 1: Associated user devices (works when Smart Life account is linked)
+    try {
+      const result = await this.apiRequest<{ list?: TuyaDeviceInfo[]; devices?: TuyaDeviceInfo[] }>(
+        'GET',
+        '/v1.0/iot-01/associated-users/devices',
+      );
+      const list = result?.list || result?.devices || [];
+      if (list.length > 0) {
+        this.logger.debug(`Found ${list.length} devices via associated-users`);
+        return list;
+      }
+    } catch (err) {
+      this.logger.debug(`associated-users endpoint failed: ${err.message}`);
+    }
+
+    // Strategy 2: Get linked users first, then their devices
+    try {
+      const users = await this.apiRequest<{ list: { uid: string }[] }>(
+        'GET',
+        '/v1.0/iot-01/associated-users',
+      );
+      const allDevices: TuyaDeviceInfo[] = [];
+      for (const user of users?.list || []) {
+        try {
+          const devicesResult = await this.apiRequest<TuyaDeviceInfo[]>(
+            'GET',
+            `/v1.0/users/${user.uid}/devices`,
+          );
+          if (Array.isArray(devicesResult)) {
+            allDevices.push(...devicesResult);
+          }
+        } catch {}
+      }
+      if (allDevices.length > 0) {
+        this.logger.debug(`Found ${allDevices.length} devices via user UIDs`);
+        return allDevices;
+      }
+    } catch (err) {
+      this.logger.debug(`associated-users UID lookup failed: ${err.message}`);
+    }
+
+    // Strategy 3: Direct device list (some project types)
+    try {
+      const result = await this.apiRequest<{ list: TuyaDeviceInfo[]; total: number }>(
+        'GET',
+        '/v1.0/devices?page_no=1&page_size=100',
+      );
+      const list = result?.list || [];
+      this.logger.debug(`Found ${list.length} devices via direct device list`);
+      return list;
+    } catch (err) {
+      this.logger.debug(`Direct device list failed: ${err.message}`);
+    }
+
+    this.logger.warn('No devices found via any Tuya API endpoint');
+    return [];
   }
 
   /** Get specific device info + current status */
