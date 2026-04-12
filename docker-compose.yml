@@ -64,8 +64,12 @@ services:
     env_file:
       - .env
     environment:
+      PORT: 3005
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-homeon}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_DATABASE: ${DB_DATABASE:-homeon}
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6380
       NODE_ENV: production

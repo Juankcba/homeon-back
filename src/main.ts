@@ -47,9 +47,26 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   // Health check endpoint (used by Docker healthcheck)
+  // Verifies both server AND database connectivity
   const httpAdapter = app.getHttpAdapter();
-  httpAdapter.get('/health', (_req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  httpAdapter.get('/health', async (_req, res) => {
+    try {
+      const { DataSource } = await import('typeorm');
+      const dataSource = app.get(DataSource);
+      await dataSource.query('SELECT 1');
+      res.status(200).json({
+        status: 'ok',
+        database: 'connected',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      res.status(503).json({
+        status: 'error',
+        database: 'disconnected',
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   // Start server
