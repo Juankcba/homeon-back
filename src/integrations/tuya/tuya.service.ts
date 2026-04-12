@@ -1,0 +1,333 @@
+/**
+ * TuyaService – Integration with Tuya / Smart Life cloud API.
+ *
+ * Handles authentication, device discovery, and command dispatch for
+ * Tuya-based devices (primarily the WiFi alarm system).
+ *
+ * Tuya Cloud API docs: https://developer.tuya.com/en/docs/cloud
+ *
+ * Required env vars (or stored in DeviceConfig meta):
+ *   TUYA_ACCESS_ID   – Client ID from Tuya IoT Platform
+ *   TUYA_ACCESS_SECRET – Client Secret from Tuya IoT Platform
+ *   TUYA_REGION       – API region: us | eu | cn | in (default: us)
+ */
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as crypto from 'crypto';
+import { DeviceConfig } from '../../devices/entities/device-config.entity';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface TuyaToken {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  expires_at: number; // epoch ms
+}
+
+export interface TuyaDeviceInfo {
+  id: string;
+  name: string;
+  category: string; // 'mal' = alarm, 'mcs' = sensor, etc.
+  online: boolean;
+  icon: string;
+  product_name: string;
+  status: TuyaDeviceStatus[];
+}
+
+export interface TuyaDeviceStatus {
+  code: string;  // e.g. 'master_mode', 'alarm_state', 'switch'
+  value: any;
+}
+
+export interface TuyaCommandResult {
+  success: boolean;
+  result?: boolean;
+  msg?: string;
+}
+
+// ─── Region → Base URL map ──────────────────────────────────────────────────
+
+const REGION_URLS: Record<string, string> = {
+  us: 'https://openapi.tuyaus.com',
+  eu: 'https://openapi.tuyaeu.com',
+  cn: 'https://openapi.tuyacn.com',
+  in: 'https://openapi.tuyain.com',
+};
+
+const CONFIG_TYPE = 'tuya-cloud';
+
+@Injectable()
+export class TuyaService implements OnModuleInit {
+  private readonly logger = new Logger(TuyaService.name);
+
+  private accessId = '';
+  private accessSecret = '';
+  private baseUrl = '';
+  private token: TuyaToken | null = null;
+  private isConfigured = false;
+
+  constructor(
+    @InjectRepository(DeviceConfig)
+    private configRepo: Repository<DeviceConfig>,
+  ) {}
+
+  // ─── Lifecycle ──────────────────────────────────────────────────────────
+
+  async onModuleInit() {
+    await this.loadConfig();
+    if (this.isConfigured) {
+      try {
+        await this.authenticate();
+        this.logger.log('TuyaService connected to Tuya Cloud API');
+      } catch (err) {
+        this.logger.warn(`Tuya auth failed on init: ${err.message}`);
+      }
+    } else {
+      this.logger.log('TuyaService: not configured yet — pair via POST /alarm/tuya/setup');
+    }
+  }
+
+  // ─── Config persistence ─────────────────────────────────────────────────
+
+  private async loadConfig() {
+    // Credentials are stored exclusively in the DB (device_configs table).
+    // They are configured via the UI at /dashboard/alarm → Tuya Setup.
+    // No .env fallback — we don't want secrets in config files.
+    const cfg = await this.configRepo.findOne({ where: { type: CONFIG_TYPE } });
+
+    if (cfg?.apiKey && cfg.meta?.accessSecret) {
+      this.accessId = cfg.apiKey;
+      this.accessSecret = cfg.meta.accessSecret;
+      const region = (cfg.meta.region as string) || 'us';
+      this.baseUrl = REGION_URLS[region] || REGION_URLS.us;
+      this.isConfigured = true;
+    }
+  }
+
+  async saveConfig(accessId: string, accessSecret: string, region = 'us') {
+    let cfg = await this.configRepo.findOne({ where: { type: CONFIG_TYPE } });
+    if (cfg) {
+      cfg.apiKey = accessId;
+      cfg.meta = { ...cfg.meta, accessSecret, region };
+      await this.configRepo.save(cfg);
+    } else {
+      cfg = await this.configRepo.save(
+        this.configRepo.create({
+          type: CONFIG_TYPE,
+          label: 'Tuya / Smart Life',
+          ip: '',
+          apiKey: accessId,
+          meta: { accessSecret, region },
+          connected: false,
+        }),
+      );
+    }
+
+    this.accessId = accessId;
+    this.accessSecret = accessSecret;
+    this.baseUrl = REGION_URLS[region] || REGION_URLS.us;
+    this.isConfigured = true;
+
+    // Test connection
+    try {
+      await this.authenticate();
+      await this.configRepo.update(cfg.id, { connected: true });
+      return { success: true, message: 'Connected to Tuya Cloud API' };
+    } catch (err) {
+      await this.configRepo.update(cfg.id, { connected: false });
+      return { success: false, message: err.message };
+    }
+  }
+
+  getStatus() {
+    return {
+      configured: this.isConfigured,
+      connected: !!this.token && this.token.expires_at > Date.now(),
+      region: this.baseUrl ? new URL(this.baseUrl).hostname : null,
+    };
+  }
+
+  // ─── Tuya Cloud Auth (HMAC-SHA256 signature) ───────────────────────────
+
+  private async authenticate(): Promise<void> {
+    const timestamp = Date.now().toString();
+    const path = '/v1.0/token?grant_type=1';
+    const stringToSign = [this.accessId, timestamp, '', 'GET', '', '', path].join('\n');
+    // Simple sign: client_id + timestamp + nonce + stringToSign
+    const signStr = this.accessId + timestamp + this.signBody('GET', path, '', timestamp);
+    const sign = this.hmacSign(this.accessId + timestamp + path);
+
+    const url = `${this.baseUrl}${path}`;
+    const headers = {
+      client_id: this.accessId,
+      sign: this.hmacSign(this.accessId + timestamp + path),
+      t: timestamp,
+      sign_method: 'HMAC-SHA256',
+    };
+
+    const res = await fetch(url, { headers });
+    const data = await res.json();
+
+    if (!data.success) {
+      throw new Error(`Tuya auth failed: ${data.msg || data.code}`);
+    }
+
+    this.token = {
+      access_token: data.result.access_token,
+      refresh_token: data.result.refresh_token,
+      expires_in: data.result.expire_time,
+      expires_at: Date.now() + data.result.expire_time * 1000 - 60_000, // 1min buffer
+    };
+  }
+
+  private hmacSign(message: string): string {
+    return crypto
+      .createHmac('sha256', this.accessSecret)
+      .update(message)
+      .digest('hex')
+      .toUpperCase();
+  }
+
+  private signBody(method: string, path: string, body: string, timestamp: string): string {
+    const contentHash = crypto.createHash('sha256').update(body || '').digest('hex');
+    const stringToSign = [method, contentHash, '', path].join('\n');
+    return stringToSign;
+  }
+
+  private async ensureAuth(): Promise<void> {
+    if (!this.isConfigured) {
+      throw new Error('Tuya not configured — call POST /alarm/tuya/setup first');
+    }
+    if (!this.token || this.token.expires_at <= Date.now()) {
+      await this.authenticate();
+    }
+  }
+
+  // ─── API requests ─────────────────────────────────────────────────────
+
+  private async apiRequest<T = any>(
+    method: string,
+    path: string,
+    body?: Record<string, any>,
+  ): Promise<T> {
+    await this.ensureAuth();
+
+    const timestamp = Date.now().toString();
+    const bodyStr = body ? JSON.stringify(body) : '';
+    const contentHash = crypto.createHash('sha256').update(bodyStr).digest('hex');
+    const stringToSign = [method, contentHash, '', path].join('\n');
+    const signStr = this.accessId + this.token!.access_token + timestamp + stringToSign;
+    const sign = this.hmacSign(signStr);
+
+    const headers: Record<string, string> = {
+      client_id: this.accessId,
+      access_token: this.token!.access_token,
+      sign,
+      t: timestamp,
+      sign_method: 'HMAC-SHA256',
+      'Content-Type': 'application/json',
+    };
+
+    const url = `${this.baseUrl}${path}`;
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: bodyStr || undefined,
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(`Tuya API error: ${data.msg} (code: ${data.code})`);
+    }
+
+    return data.result as T;
+  }
+
+  // ─── Device operations ────────────────────────────────────────────────
+
+  /** List all devices linked to the Tuya cloud project */
+  async getDevices(): Promise<TuyaDeviceInfo[]> {
+    // Get user's devices via the "devices" API
+    const result = await this.apiRequest<{ list: TuyaDeviceInfo[] }>(
+      'GET',
+      '/v1.0/iot-01/associated-users/devices',
+    );
+    return result?.list || [];
+  }
+
+  /** Get specific device info + current status */
+  async getDeviceInfo(deviceId: string): Promise<TuyaDeviceInfo> {
+    return this.apiRequest<TuyaDeviceInfo>('GET', `/v1.0/devices/${deviceId}`);
+  }
+
+  /** Get current status DPs for a device */
+  async getDeviceStatus(deviceId: string): Promise<TuyaDeviceStatus[]> {
+    return this.apiRequest<TuyaDeviceStatus[]>(
+      'GET',
+      `/v1.0/devices/${deviceId}/status`,
+    );
+  }
+
+  /** Send commands to a device (set DPs) */
+  async sendCommand(
+    deviceId: string,
+    commands: { code: string; value: any }[],
+  ): Promise<TuyaCommandResult> {
+    const result = await this.apiRequest<boolean>(
+      'POST',
+      `/v1.0/devices/${deviceId}/commands`,
+      { commands },
+    );
+    return { success: true, result };
+  }
+
+  // ─── Alarm-specific helpers ───────────────────────────────────────────
+
+  /**
+   * Alarm modes for generic Tuya WiFi alarm panels.
+   * DP code: 'master_mode'
+   * Values: 'arm' | 'disarm' | 'home' | 'sos'
+   */
+  async setAlarmMode(deviceId: string, mode: 'arm' | 'disarm' | 'home' | 'sos') {
+    return this.sendCommand(deviceId, [{ code: 'master_mode', value: mode }]);
+  }
+
+  /** Get alarm panel status including mode, sensors, battery */
+  async getAlarmStatus(deviceId: string) {
+    const statuses = await this.getDeviceStatus(deviceId);
+    const statusMap: Record<string, any> = {};
+    for (const s of statuses) {
+      statusMap[s.code] = s.value;
+    }
+
+    return {
+      mode: statusMap['master_mode'] || 'unknown',
+      alarmActive: statusMap['alarm_state'] === true,
+      alarmSound: statusMap['alarm_volume'] ?? null,
+      battery: statusMap['battery_percentage'] ?? null,
+      tamper: statusMap['temper_alarm'] === true,
+      statuses,
+    };
+  }
+
+  /** Trigger or stop the siren manually */
+  async triggerSiren(deviceId: string, active: boolean) {
+    return this.sendCommand(deviceId, [{ code: 'alarm_state', value: active }]);
+  }
+
+  // ─── Health check ─────────────────────────────────────────────────────
+
+  async checkHealth(): Promise<{ connected: boolean; message: string }> {
+    if (!this.isConfigured) {
+      return { connected: false, message: 'Not configured' };
+    }
+    try {
+      await this.ensureAuth();
+      return { connected: true, message: 'Tuya Cloud API reachable' };
+    } catch (err) {
+      return { connected: false, message: err.message };
+    }
+  }
+}

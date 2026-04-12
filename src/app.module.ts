@@ -12,11 +12,13 @@ import { EventsModule } from './events/events.module';
 import { DevicesModule } from './devices/devices.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AlarmModule } from './alarm/alarm.module';
 
 // Hardware integration modules (Global — available everywhere)
 import { TapoModule } from './integrations/tapo/tapo.module';
 import { HueModule } from './integrations/hue/hue.module';
 import { GateControllerModule } from './integrations/gate-controller/gate-controller.module';
+import { TuyaModule } from './integrations/tuya/tuya.module';
 
 @Module({
   imports: [
@@ -50,6 +52,7 @@ import { GateControllerModule } from './integrations/gate-controller/gate-contro
     TapoModule,
     HueModule,
     GateControllerModule,
+    TuyaModule,
 
     // Feature modules
     AuthModule,
@@ -62,6 +65,7 @@ import { GateControllerModule } from './integrations/gate-controller/gate-contro
     DevicesModule,
     WebsocketModule,
     DashboardModule,
+    AlarmModule,
   ],
 })
 export class AppModule {}

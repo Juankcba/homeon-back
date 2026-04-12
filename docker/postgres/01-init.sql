@@ -258,6 +258,36 @@ CREATE TABLE zones (
   "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
 );
 
+-- ─── Alarms (Tuya / Smart Life) ──────────────────────────
+CREATE TYPE alarm_mode AS ENUM ('arm', 'disarm', 'home', 'sos', 'unknown');
+
+CREATE TABLE alarms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR NOT NULL,
+  "tuyaDeviceId" VARCHAR NOT NULL UNIQUE,
+  model VARCHAR,
+  mode alarm_mode NOT NULL DEFAULT 'unknown',
+  "alarmActive" BOOLEAN NOT NULL DEFAULT false,
+  online BOOLEAN NOT NULL DEFAULT false,
+  battery DECIMAL,
+  zone VARCHAR DEFAULT 'general',
+  sensors JSONB DEFAULT '{}',
+  "lastSyncAt" TIMESTAMP,
+  "isActive" BOOLEAN DEFAULT true,
+  "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE alarm_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "alarmId" VARCHAR NOT NULL,
+  type VARCHAR NOT NULL,
+  message VARCHAR NOT NULL,
+  detail JSONB,
+  "triggeredBy" VARCHAR,
+  timestamp TIMESTAMP NOT NULL DEFAULT now()
+);
+
 -- ─── INDEXES ──────────────────────────────────────────────
 CREATE INDEX idx_detections_type_ts ON detections (type, timestamp);
 CREATE INDEX idx_detections_camera_ts ON detections ("cameraId", timestamp);
@@ -270,3 +300,6 @@ CREATE INDEX idx_events_type_ts ON events (type, timestamp);
 CREATE INDEX idx_events_camera_ts ON events ("cameraId", timestamp);
 CREATE INDEX idx_events_severity_ts ON events (severity, timestamp);
 CREATE INDEX idx_events_ts ON events (timestamp);
+
+CREATE INDEX idx_alarm_events_alarm_ts ON alarm_events ("alarmId", timestamp);
+CREATE INDEX idx_alarm_events_type_ts ON alarm_events (type, timestamp);

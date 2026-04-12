@@ -75,6 +75,8 @@ services:
       NODE_ENV: production
       SNAPSHOT_DIR: /snapshots
       PHOTOS_DIR: /data/photos
+      # Tuya/Smart Life: credentials stored in DB via UI setup
+      # No env vars needed — configure at /dashboard/alarm
     volumes:
       - ai-snapshots:/snapshots
       - ai-photos:/data/photos
