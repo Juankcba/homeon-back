@@ -150,24 +150,42 @@ export class TuyaService implements OnModuleInit {
   }
 
   // ─── Tuya Cloud Auth (HMAC-SHA256 signature) ───────────────────────────
+  // Spec: https://developer.tuya.com/en/docs/iot/new-singnature?id=Kbw0q34cs2e5g
+  //
+  // Token request sign:  HMAC-SHA256(clientId + t + stringToSign, secret)
+  // Business request sign: HMAC-SHA256(clientId + access_token + t + stringToSign, secret)
+  // stringToSign = method + "\n" + sha256(body) + "\n" + headers + "\n" + url
 
   private async authenticate(): Promise<void> {
     const timestamp = Date.now().toString();
-    const path = '/v1.0/token?grant_type=1';
-    const stringToSign = [this.accessId, timestamp, '', 'GET', '', '', path].join('\n');
-    // Simple sign: client_id + timestamp + nonce + stringToSign
-    const signStr = this.accessId + timestamp + this.signBody('GET', path, '', timestamp);
-    const sign = this.hmacSign(this.accessId + timestamp + path);
+    const nonce = '';
+    const method = 'GET';
+    const url = '/v1.0/token?grant_type=1';
+    const body = '';
 
-    const url = `${this.baseUrl}${path}`;
-    const headers = {
+    // stringToSign = METHOD\nsha256(body)\n\nurl
+    const contentHash = crypto.createHash('sha256').update(body).digest('hex');
+    const stringToSign = [method, contentHash, '', url].join('\n');
+
+    // For token request: sign = HMAC(clientId + t + nonce + stringToSign)
+    const signStr = this.accessId + timestamp + nonce + stringToSign;
+    const sign = crypto
+      .createHmac('sha256', this.accessSecret)
+      .update(signStr)
+      .digest('hex')
+      .toUpperCase();
+
+    const fullUrl = `${this.baseUrl}${url}`;
+    const headers: Record<string, string> = {
       client_id: this.accessId,
-      sign: this.hmacSign(this.accessId + timestamp + path),
+      sign,
       t: timestamp,
       sign_method: 'HMAC-SHA256',
+      nonce,
     };
 
-    const res = await fetch(url, { headers });
+    this.logger.debug(`Auth request → ${fullUrl}`);
+    const res = await fetch(fullUrl, { headers });
     const data = await res.json();
 
     if (!data.success) {
@@ -178,22 +196,9 @@ export class TuyaService implements OnModuleInit {
       access_token: data.result.access_token,
       refresh_token: data.result.refresh_token,
       expires_in: data.result.expire_time,
-      expires_at: Date.now() + data.result.expire_time * 1000 - 60_000, // 1min buffer
+      expires_at: Date.now() + data.result.expire_time * 1000 - 60_000,
     };
-  }
-
-  private hmacSign(message: string): string {
-    return crypto
-      .createHmac('sha256', this.accessSecret)
-      .update(message)
-      .digest('hex')
-      .toUpperCase();
-  }
-
-  private signBody(method: string, path: string, body: string, timestamp: string): string {
-    const contentHash = crypto.createHash('sha256').update(body || '').digest('hex');
-    const stringToSign = [method, contentHash, '', path].join('\n');
-    return stringToSign;
+    this.logger.debug('Tuya auth OK — token acquired');
   }
 
   private async ensureAuth(): Promise<void> {
@@ -215,11 +220,20 @@ export class TuyaService implements OnModuleInit {
     await this.ensureAuth();
 
     const timestamp = Date.now().toString();
+    const nonce = '';
     const bodyStr = body ? JSON.stringify(body) : '';
+
+    // stringToSign = METHOD\nsha256(body)\n\nurl
     const contentHash = crypto.createHash('sha256').update(bodyStr).digest('hex');
     const stringToSign = [method, contentHash, '', path].join('\n');
-    const signStr = this.accessId + this.token!.access_token + timestamp + stringToSign;
-    const sign = this.hmacSign(signStr);
+
+    // For business requests: sign = HMAC(clientId + access_token + t + nonce + stringToSign)
+    const signStr = this.accessId + this.token!.access_token + timestamp + nonce + stringToSign;
+    const sign = crypto
+      .createHmac('sha256', this.accessSecret)
+      .update(signStr)
+      .digest('hex')
+      .toUpperCase();
 
     const headers: Record<string, string> = {
       client_id: this.accessId,
@@ -227,6 +241,7 @@ export class TuyaService implements OnModuleInit {
       sign,
       t: timestamp,
       sign_method: 'HMAC-SHA256',
+      nonce,
       'Content-Type': 'application/json',
     };
 
