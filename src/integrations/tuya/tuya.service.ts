@@ -487,6 +487,56 @@ export class TuyaService implements OnModuleInit {
     throw new Error('Could not control siren — no compatible DP found');
   }
 
+  // ─── Local control via AI engine (tinytuya) ────────────────────────────
+  // The Python AI service runs on the same LAN as Tuya devices and exposes
+  // a local HTTP API on port 5001 for direct device control.
+
+  private get aiLocalUrl(): string {
+    // AI engine runs on host network, same as backend
+    return 'http://127.0.0.1:5001';
+  }
+
+  private get aiApiKey(): string {
+    return process.env.AI_API_KEY || 'homeon-ai-secret-2026';
+  }
+
+  /** Send a command to the local Tuya API (via AI engine) */
+  async localRequest(path: string, body: Record<string, any>): Promise<any> {
+    const res = await fetch(`${this.aiLocalUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AI-Key': this.aiApiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.status !== 200) {
+      throw new Error(data.error || `Local Tuya API error: ${res.status}`);
+    }
+    return data;
+  }
+
+  /** Get status via local LAN connection */
+  async getLocalStatus(deviceId: string, localKey: string, ip: string): Promise<any> {
+    return this.localRequest('/tuya/status', { device_id: deviceId, local_key: localKey, ip });
+  }
+
+  /** Scan device DPs via local LAN */
+  async scanLocalDevice(deviceId: string, localKey: string, ip: string): Promise<any> {
+    return this.localRequest('/tuya/scan', { device_id: deviceId, local_key: localKey, ip });
+  }
+
+  /** Set alarm mode via local LAN */
+  async setLocalAlarmMode(deviceId: string, localKey: string, ip: string, mode: string): Promise<any> {
+    return this.localRequest('/tuya/mode', { device_id: deviceId, local_key: localKey, ip, mode });
+  }
+
+  /** Control siren via local LAN */
+  async setLocalSiren(deviceId: string, localKey: string, ip: string, active: boolean): Promise<any> {
+    return this.localRequest('/tuya/siren', { device_id: deviceId, local_key: localKey, ip, active });
+  }
+
   // ─── Health check ─────────────────────────────────────────────────────
 
   async checkHealth(): Promise<{ connected: boolean; message: string }> {

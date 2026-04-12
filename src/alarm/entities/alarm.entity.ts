@@ -45,6 +45,14 @@ export class Alarm {
   @Column({ default: 'general' })
   zone: string;
 
+  /** Tuya local key (for LAN control via tinytuya) */
+  @Column({ nullable: true })
+  localKey: string;
+
+  /** Device local IP on the LAN */
+  @Column({ nullable: true })
+  localIp: string;
+
   /** Extra Tuya DPs and sensor data */
   @Column({ type: 'jsonb', default: {} })
   sensors: Record<string, any>;

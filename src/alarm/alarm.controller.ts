@@ -99,6 +99,27 @@ export class AlarmController {
     return this.alarmService.remove(id);
   }
 
+  @Post(':id/set-local-ip')
+  @ApiOperation({ summary: 'Set the local LAN IP for direct device control' })
+  async setLocalIp(
+    @Param('id') id: string,
+    @Body() body: { localIp: string },
+  ) {
+    const alarm = await this.alarmService.findOne(id);
+    alarm.localIp = body.localIp;
+    return this.alarmService['alarmRepo'].save(alarm);
+  }
+
+  @Get(':id/scan')
+  @ApiOperation({ summary: 'Scan device DPs via local LAN (discover available controls)' })
+  async scanDevice(@Param('id') id: string) {
+    const alarm = await this.alarmService.findOne(id);
+    if (!alarm.localKey || !alarm.localIp) {
+      return { error: 'Missing localKey or localIp. Set the local IP first.' };
+    }
+    return this.tuyaService.scanLocalDevice(alarm.tuyaDeviceId, alarm.localKey, alarm.localIp);
+  }
+
   // ─── Commands ──────────────────────────────────────────────────────────
 
   @Post(':id/arm')

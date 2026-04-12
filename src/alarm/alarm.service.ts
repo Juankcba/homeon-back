@@ -57,18 +57,24 @@ export class AlarmService {
   }
 
   /** Register a Tuya device as a managed alarm */
-  async registerDevice(tuyaDeviceId: string, name?: string, zone?: string) {
+  async registerDevice(
+    tuyaDeviceId: string,
+    name?: string,
+    zone?: string,
+    localIp?: string,
+  ) {
     // Check if already registered
     let alarm = await this.alarmRepo.findOne({ where: { tuyaDeviceId } });
     if (alarm) {
       alarm.isActive = true;
       if (name) alarm.name = name;
       if (zone) alarm.zone = zone;
+      if (localIp) alarm.localIp = localIp;
       await this.alarmRepo.save(alarm);
       return alarm;
     }
 
-    // Fetch device info from Tuya
+    // Fetch device info from Tuya (includes local_key)
     const info = await this.tuyaService.getDeviceInfo(tuyaDeviceId);
 
     alarm = await this.alarmRepo.save(
@@ -78,38 +84,68 @@ export class AlarmService {
         model: info.product_name || undefined,
         online: info.online,
         zone: zone || 'general',
+        localKey: (info as any).local_key || undefined,
+        localIp: localIp || undefined,
       }),
     );
 
-    this.logger.log(`Registered alarm: ${alarm.name} (${tuyaDeviceId})`);
+    this.logger.log(`Registered alarm: ${alarm.name} (${tuyaDeviceId}) localKey: ${alarm.localKey ? 'YES' : 'NO'}`);
     return alarm;
   }
 
-  /** Pull latest status from Tuya and update local DB */
+  /** Pull latest status — tries local first, then cloud */
   async syncStatus(id: string) {
     const alarm = await this.findOne(id);
-    const status = await this.tuyaService.getAlarmStatus(alarm.tuyaDeviceId);
-
     const prevMode = alarm.mode;
-    const prevOnline = alarm.online;
 
-    alarm.mode = (status.mode as AlarmMode) || 'unknown';
-    alarm.alarmActive = status.alarmActive;
-    alarm.battery = status.battery;
-    alarm.online = true; // If we got a response, it's online
-    alarm.sensors = status.statuses.reduce(
-      (acc, s) => ({ ...acc, [s.code]: s.value }),
-      {},
-    );
-    alarm.lastSyncAt = new Date();
-    await this.alarmRepo.save(alarm);
+    // Try local LAN control first (faster, no cloud dependency)
+    if (alarm.localKey && alarm.localIp) {
+      try {
+        const localStatus = await this.tuyaService.getLocalStatus(
+          alarm.tuyaDeviceId, alarm.localKey, alarm.localIp,
+        );
+        alarm.mode = (localStatus.mode as AlarmMode) || alarm.mode;
+        alarm.alarmActive = localStatus.alarmActive ?? alarm.alarmActive;
+        alarm.online = true;
+        alarm.sensors = localStatus.dps || {};
+        alarm.lastSyncAt = new Date();
+        await this.alarmRepo.save(alarm);
 
-    // Log mode change event
+        if (prevMode !== alarm.mode) {
+          await this.logEvent(alarm.id, 'mode_change',
+            `Modo cambiado: ${prevMode} → ${alarm.mode}`,
+            { from: prevMode, to: alarm.mode },
+          );
+        }
+        return alarm;
+      } catch (err) {
+        this.logger.warn(`Local sync failed for ${alarm.name}: ${err.message}, trying cloud…`);
+      }
+    }
+
+    // Fallback: Tuya cloud API
+    try {
+      const status = await this.tuyaService.getAlarmStatus(alarm.tuyaDeviceId);
+      alarm.mode = (status.mode as AlarmMode) || 'unknown';
+      alarm.alarmActive = status.alarmActive;
+      alarm.battery = status.battery;
+      alarm.online = true;
+      alarm.sensors = status.statuses?.reduce(
+        (acc: Record<string, any>, s: any) => ({ ...acc, [s.code]: s.value }), {},
+      ) || {};
+      alarm.lastSyncAt = new Date();
+      await this.alarmRepo.save(alarm);
+    } catch (err) {
+      this.logger.warn(`Cloud sync also failed for ${alarm.name}: ${err.message}`);
+      alarm.online = false;
+      await this.alarmRepo.save(alarm);
+    }
+
     if (prevMode !== alarm.mode) {
-      await this.logEvent(alarm.id, 'mode_change', `Modo cambiado: ${prevMode} → ${alarm.mode}`, {
-        from: prevMode,
-        to: alarm.mode,
-      });
+      await this.logEvent(alarm.id, 'mode_change',
+        `Modo cambiado: ${prevMode} → ${alarm.mode}`,
+        { from: prevMode, to: alarm.mode },
+      );
     }
 
     return alarm;
@@ -140,7 +176,19 @@ export class AlarmService {
     const alarm = await this.findOne(id);
     const prevMode = alarm.mode;
 
-    await this.tuyaService.setAlarmMode(alarm.tuyaDeviceId, mode);
+    // Try local first, then cloud
+    if (alarm.localKey && alarm.localIp) {
+      try {
+        await this.tuyaService.setLocalAlarmMode(
+          alarm.tuyaDeviceId, alarm.localKey, alarm.localIp, mode,
+        );
+      } catch (err) {
+        this.logger.warn(`Local setMode failed: ${err.message}, trying cloud…`);
+        await this.tuyaService.setAlarmMode(alarm.tuyaDeviceId, mode);
+      }
+    } else {
+      await this.tuyaService.setAlarmMode(alarm.tuyaDeviceId, mode);
+    }
 
     alarm.mode = mode;
     alarm.lastSyncAt = new Date();
@@ -159,7 +207,19 @@ export class AlarmService {
 
   async triggerSiren(id: string, active: boolean, triggeredBy?: string) {
     const alarm = await this.findOne(id);
-    await this.tuyaService.triggerSiren(alarm.tuyaDeviceId, active);
+
+    if (alarm.localKey && alarm.localIp) {
+      try {
+        await this.tuyaService.setLocalSiren(
+          alarm.tuyaDeviceId, alarm.localKey, alarm.localIp, active,
+        );
+      } catch (err) {
+        this.logger.warn(`Local siren failed: ${err.message}, trying cloud…`);
+        await this.tuyaService.triggerSiren(alarm.tuyaDeviceId, active);
+      }
+    } else {
+      await this.tuyaService.triggerSiren(alarm.tuyaDeviceId, active);
+    }
 
     alarm.alarmActive = active;
     await this.alarmRepo.save(alarm);
