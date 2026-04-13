@@ -303,3 +303,20 @@ CREATE INDEX idx_events_ts ON events (timestamp);
 
 CREATE INDEX idx_alarm_events_alarm_ts ON alarm_events ("alarmId", timestamp);
 CREATE INDEX idx_alarm_events_type_ts ON alarm_events (type, timestamp);
+
+-- ─── Edge devices (ESP32 LAN bridges) ─────────────────────
+CREATE TABLE IF NOT EXISTS edge_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR NOT NULL,
+  product VARCHAR NOT NULL,
+  version VARCHAR,
+  mac VARCHAR NOT NULL UNIQUE,
+  token TEXT NOT NULL UNIQUE,
+  connected BOOLEAN DEFAULT false,
+  "lastIp" VARCHAR,
+  "lastRssi" INTEGER,
+  "lastSeenAt" TIMESTAMP,
+  "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_edge_devices_mac ON edge_devices (mac);

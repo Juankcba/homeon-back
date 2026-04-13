@@ -13,6 +13,7 @@ import { DevicesModule } from './devices/devices.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AlarmModule } from './alarm/alarm.module';
+import { EdgeModule } from './edge/edge.module';
 
 // Hardware integration modules (Global — available everywhere)
 import { TapoModule } from './integrations/tapo/tapo.module';
@@ -66,6 +67,7 @@ import { TuyaModule } from './integrations/tuya/tuya.module';
     WebsocketModule,
     DashboardModule,
     AlarmModule,
+    EdgeModule,
   ],
 })
 export class AppModule {}

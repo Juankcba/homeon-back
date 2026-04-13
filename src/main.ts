@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
+import { EdgeBridgeGateway } from './edge/edge-bridge.gateway';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -72,6 +73,14 @@ async function bootstrap() {
   // Start server
   const port = configService.get<number>('PORT', 3001);
   await app.listen(port);
+
+  // Attach edge-bridge raw WebSocket gateway to the HTTP server's upgrade event
+  try {
+    const bridge = app.get(EdgeBridgeGateway);
+    bridge.attachTo(app.getHttpServer());
+  } catch (err: any) {
+    console.warn('[main] edge bridge not attached:', err?.message);
+  }
 
   console.log(`
   ╔══════════════════════════════════════════════╗
