@@ -52,6 +52,18 @@ export class AiController {
     return this.aiService.getEngineStatus();
   }
 
+  @Get('engine/config')
+  @ApiOperation({ summary: 'Get AI engine runtime config (detectionEnabled flag)' })
+  async getEngineConfig() {
+    return this.aiService.getEngineRuntimeConfig();
+  }
+
+  @Put('engine/config')
+  @ApiOperation({ summary: 'Update AI engine runtime config (toggle detection on/off)' })
+  async updateEngineConfig(@Body() body: { detectionEnabled?: boolean }) {
+    return this.aiService.setEngineRuntimeConfig(body || {});
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get AI statistics' })
   async getStats() {

@@ -11,12 +11,13 @@ import { AuthModule } from '../auth/auth.module';
 import { AuthorizedFace } from './entities/authorized-face.entity';
 import { AuthorizedVehicle } from './entities/authorized-vehicle.entity';
 import { Detection } from './entities/detection.entity';
+import { DeviceConfig } from '../devices/entities/device-config.entity';
 
 @Module({
   imports: [
     ConfigModule,
     AuthModule,
-    TypeOrmModule.forFeature([AuthorizedFace, AuthorizedVehicle, Detection]),
+    TypeOrmModule.forFeature([AuthorizedFace, AuthorizedVehicle, Detection, DeviceConfig]),
     MulterModule.register({}),
   ],
   controllers: [AiController],

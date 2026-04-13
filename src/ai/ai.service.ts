@@ -4,6 +4,9 @@ import { Repository } from 'typeorm';
 import { AuthorizedFace } from './entities/authorized-face.entity';
 import { AuthorizedVehicle, PlateFormat } from './entities/authorized-vehicle.entity';
 import { Detection } from './entities/detection.entity';
+import { DeviceConfig } from '../devices/entities/device-config.entity';
+
+const AI_ENGINE_CONFIG_TYPE = 'ai-engine';
 
 // ─── Plate validation helpers ─────────────────────────────────────────────────
 
@@ -61,7 +64,40 @@ export class AiService implements OnModuleInit {
     private vehiclesRepository: Repository<AuthorizedVehicle>,
     @InjectRepository(Detection)
     private detectionsRepository: Repository<Detection>,
+    @InjectRepository(DeviceConfig)
+    private deviceConfigRepository: Repository<DeviceConfig>,
   ) {}
+
+  // --- Engine config (runtime flags, e.g. detectionEnabled) ---
+  private async getEngineConfig(): Promise<DeviceConfig> {
+    let cfg = await this.deviceConfigRepository.findOne({ where: { type: AI_ENGINE_CONFIG_TYPE } });
+    if (!cfg) {
+      cfg = this.deviceConfigRepository.create({
+        type: AI_ENGINE_CONFIG_TYPE,
+        label: 'AI Engine',
+        meta: { detectionEnabled: true },
+        connected: true,
+      });
+      cfg = await this.deviceConfigRepository.save(cfg);
+    }
+    if (cfg.meta == null) cfg.meta = {};
+    if (cfg.meta.detectionEnabled === undefined) cfg.meta.detectionEnabled = true;
+    return cfg;
+  }
+
+  async getEngineRuntimeConfig(): Promise<{ detectionEnabled: boolean }> {
+    const cfg = await this.getEngineConfig();
+    return { detectionEnabled: cfg.meta.detectionEnabled !== false };
+  }
+
+  async setEngineRuntimeConfig(patch: { detectionEnabled?: boolean }): Promise<{ detectionEnabled: boolean }> {
+    const cfg = await this.getEngineConfig();
+    if (typeof patch.detectionEnabled === 'boolean') {
+      cfg.meta = { ...cfg.meta, detectionEnabled: patch.detectionEnabled };
+    }
+    await this.deviceConfigRepository.save(cfg);
+    return { detectionEnabled: cfg.meta.detectionEnabled !== false };
+  }
 
   async onModuleInit() {
     const faceCount = await this.facesRepository.count();
@@ -320,9 +356,10 @@ export class AiService implements OnModuleInit {
 
   // --- Engine Status ---
   async getEngineStatus() {
-    // TODO: Check actual AI engine health
+    const runtime = await this.getEngineRuntimeConfig();
     return {
-      status: 'operational',
+      status: runtime.detectionEnabled ? 'operational' : 'paused',
+      detectionEnabled: runtime.detectionEnabled,
       latency: 120,
       host: 'Ubuntu Server · Mac Mini',
       lastCheck: new Date(),
