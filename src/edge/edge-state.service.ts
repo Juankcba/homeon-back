@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { EdgeDevice } from './entities/edge-device.entity';
 
 /**
@@ -12,22 +13,77 @@ export class EdgeStateService {
   /** simple in-memory cache: key = `${lat},${lon}` → { expiresAt, payload } */
   private weatherCache = new Map<string, { expiresAt: number; payload: any }>();
 
-  constructor() {}
+  constructor(private readonly moduleRef: ModuleRef) {}
+
+  /** Lazy-resolve a service by class name to avoid circular module imports. */
+  private lookup<T>(name: string): T | null {
+    try {
+      return this.moduleRef.get(name, { strict: false }) as T;
+    } catch {
+      return null;
+    }
+  }
 
   async getHomeState() {
     const now = new Date();
-    // TODO: wire to real repositories (cameras, lights, gate, alarm, events)
-    // Placeholder aggregator – replace with real queries once we add injections.
+    const time = now.toTimeString().slice(0, 5);
+
+    const cameras    = this.lookup<any>('CamerasService');
+    const lights     = this.lookup<any>('LightsService');
+    const gate       = this.lookup<any>('GateService');
+    const alarm      = this.lookup<any>('AlarmService');
+    const events     = this.lookup<any>('EventsService');
+
+    // Run everything in parallel, tolerate partial failures
+    const [camStats, lightStats, gateStatus, alarmSummary, lastEvt] =
+      await Promise.all([
+        cameras?.getStats?.().catch(() => null) ?? null,
+        lights?.getStats?.().catch(() => null) ?? null,
+        gate?.getStatus?.().catch(() => null) ?? null,
+        alarm?.getSummary?.().catch(() => null) ?? null,
+        events?.findAll?.({ limit: 1, page: 1 }).catch(() => null) ?? null,
+      ]);
+
+    // Alarm mode: if any alarm is armed, consider the house armed
+    let alarmMode: 'arm' | 'disarm' | 'home' | 'sos' = 'disarm';
+    if (alarmSummary) {
+      if (alarmSummary.alarmsTriggered > 0) alarmMode = 'sos';
+      else if (alarmSummary.armed > 0)      alarmMode = 'arm';
+      else if (alarmSummary.homeMode > 0)   alarmMode = 'home';
+      else                                   alarmMode = 'disarm';
+    }
+
+    // Gate: status == 'open' or position != 0 → open
+    const gateOpen = !!gateStatus && (
+      gateStatus.status === 'open' ||
+      gateStatus.status === 'opening' ||
+      (typeof gateStatus.position === 'number' && gateStatus.position > 0)
+    );
+
+    // Last event text
+    let lastEvent = '';
+    let lastEventTime = '';
+    const firstEvt = lastEvt?.events?.[0];
+    if (firstEvt) {
+      lastEvent = (firstEvt.message || firstEvt.type || '').toString();
+      if (firstEvt.timestamp) {
+        const d = new Date(firstEvt.timestamp);
+        lastEventTime = d.toTimeString().slice(0, 5);
+      }
+    }
+    // Strip accents so the LCD fonts render correctly
+    lastEvent = lastEvent.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
     return {
-      time: now.toTimeString().slice(0, 5),
-      alarmMode: 'disarm',
-      gateOpen: false,
-      camerasOnline: 4,
-      camerasTotal: 4,
-      lightsOn: 2,
-      lightsTotal: 8,
-      lastEvent: 'Sin actividad',
-      lastEventTime: '',
+      time,
+      alarmMode,
+      gateOpen,
+      camerasOnline: camStats?.online ?? 0,
+      camerasTotal:  camStats?.total ?? 0,
+      lightsOn:      lightStats?.onLights ?? 0,
+      lightsTotal:   lightStats?.totalLights ?? 0,
+      lastEvent:     lastEvent || 'Sin actividad',
+      lastEventTime,
     };
   }
 
@@ -120,17 +176,29 @@ export class EdgeStateService {
 
   // ─── Geocoding helper used by /edge/devices/:id/location ─────────────────
   async geocode(query: string) {
+    if (!query?.trim()) return [];
     const url = `https://geocoding-api.open-meteo.com/v1/search`
       + `?name=${encodeURIComponent(query)}&count=5&language=es&format=json`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`geocoding ${res.status}`);
-    const j: any = await res.json();
-    return (j?.results || []).map((r: any) => ({
-      name: r.name,
-      admin: [r.admin1, r.country].filter(Boolean).join(', '),
-      latitude: r.latitude,
-      longitude: r.longitude,
-      timezone: r.timezone,
-    }));
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(to);
+      if (!res.ok) {
+        this.logger.warn(`geocoding ${res.status} for "${query}"`);
+        return [];
+      }
+      const j: any = await res.json();
+      return (j?.results || []).map((r: any) => ({
+        name: r.name,
+        admin: [r.admin1, r.country].filter(Boolean).join(', '),
+        latitude: r.latitude,
+        longitude: r.longitude,
+        timezone: r.timezone,
+      }));
+    } catch (e: any) {
+      this.logger.warn(`geocoding fetch failed: ${e?.message || e}`);
+      return [];
+    }
   }
 }
