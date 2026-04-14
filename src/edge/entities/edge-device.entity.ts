@@ -47,6 +47,19 @@ export class EdgeDevice {
   @Column({ type: 'timestamp', nullable: true })
   lastSeenAt: Date;
 
+  // ─── Location (used for the weather card on the LCD) ──────────────────────
+  @Column({ nullable: true })
+  locationName: string;
+
+  @Column({ type: 'double precision', nullable: true })
+  latitude: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude: number;
+
+  @Column({ nullable: true })
+  timezone: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

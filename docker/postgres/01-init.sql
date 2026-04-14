@@ -316,7 +316,17 @@ CREATE TABLE IF NOT EXISTS edge_devices (
   "lastIp" VARCHAR,
   "lastRssi" INTEGER,
   "lastSeenAt" TIMESTAMP,
+  "locationName" VARCHAR,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  timezone VARCHAR,
   "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_edge_devices_mac ON edge_devices (mac);
+
+-- Idempotent migrations for existing installs
+ALTER TABLE edge_devices ADD COLUMN IF NOT EXISTS "locationName" VARCHAR;
+ALTER TABLE edge_devices ADD COLUMN IF NOT EXISTS latitude  DOUBLE PRECISION;
+ALTER TABLE edge_devices ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE edge_devices ADD COLUMN IF NOT EXISTS timezone  VARCHAR;

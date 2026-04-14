@@ -124,6 +124,20 @@ export class EdgeService {
     return { ok: true };
   }
 
+  async updateLocation(
+    id: string,
+    data: { locationName: string; latitude: number; longitude: number; timezone?: string },
+  ) {
+    const d = await this.repo.findOne({ where: { id } });
+    if (!d) throw new NotFoundException('Device not found');
+    d.locationName = data.locationName;
+    d.latitude = data.latitude;
+    d.longitude = data.longitude;
+    d.timezone = data.timezone || d.timezone || 'America/Argentina/Cordoba';
+    await this.repo.save(d);
+    return { ok: true, device: d };
+  }
+
   /** Validate a bearer token (used by WS gateway). */
   async authenticateByToken(token: string): Promise<EdgeDevice> {
     const d = await this.repo.findOne({ where: { token } });

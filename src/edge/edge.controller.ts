@@ -6,6 +6,7 @@ import {
   Query,
   Param,
   Delete,
+  Patch,
   UseGuards,
   Req,
 } from '@nestjs/common';
@@ -72,6 +73,25 @@ export class EdgeController {
     return this.edge.deleteDevice(id);
   }
 
+  @Patch('edge/devices/:id/location')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update the weather location for an edge device' })
+  setLocation(
+    @Param('id') id: string,
+    @Body() body: { locationName: string; latitude: number; longitude: number; timezone?: string },
+  ) {
+    return this.edge.updateLocation(id, body);
+  }
+
+  @Get('edge/geocode')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Search cities (Open-Meteo geocoding)' })
+  geocode(@Query('q') q: string) {
+    return this.state.geocode(q || '');
+  }
+
   // ─── State endpoints (called by ESP with its own token) ───────────────────
   //  The ESP sends Authorization: Bearer <deviceToken>. We validate it by
   //  looking up the token in edge_devices (done via EdgeTokenGuard below).
@@ -88,7 +108,7 @@ export class EdgeController {
   @ApiOperation({ summary: 'Weather data for LCD (edge token)' })
   async weather(@Req() req: any) {
     await this.authEdge(req);
-    return this.state.getWeather();
+    return this.state.getWeather(req.edgeDevice);
   }
 
   private async authEdge(req: any) {
