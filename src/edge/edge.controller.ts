@@ -111,6 +111,23 @@ export class EdgeController {
     return this.state.getWeather(req.edgeDevice);
   }
 
+  // ─── Network scan (pushed by ESP) ────────────────────────────────────────
+  @Post('edge/scan')
+  @ApiOperation({ summary: 'Device pushes a LAN scan result (edge token)' })
+  async pushScan(@Req() req: any, @Body() body: any) {
+    await this.authEdge(req);
+    await this.edge.saveScan(req.edgeDevice.id, body);
+    return { ok: true, received: Array.isArray(body?.devices) ? body.devices.length : 0 };
+  }
+
+  @Get('edge/devices/:id/scan')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Fetch last LAN scan for a given edge device' })
+  getScan(@Param('id') id: string) {
+    return this.edge.getScan(id);
+  }
+
   private async authEdge(req: any) {
     const h: string | undefined = req.headers?.authorization;
     if (!h?.startsWith('Bearer ')) throw new Error('Missing token');

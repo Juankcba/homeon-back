@@ -60,6 +60,13 @@ export class EdgeDevice {
   @Column({ nullable: true })
   timezone: string;
 
+  /** Last LAN scan result pushed by the device ({scannedAt, devices: [...]}) */
+  @Column({ type: 'jsonb', nullable: true })
+  lastScan: any;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastScanAt: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 

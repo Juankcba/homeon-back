@@ -149,6 +149,16 @@ export class EdgeService {
     await this.repo.update(id, { ...patch, lastSeenAt: new Date() });
   }
 
+  async saveScan(id: string, scan: any) {
+    await this.repo.update(id, { lastScan: scan, lastScanAt: new Date() });
+  }
+
+  async getScan(id: string) {
+    const d = await this.repo.findOne({ where: { id } });
+    if (!d) throw new NotFoundException('Device not found');
+    return { scannedAt: d.lastScanAt, scan: d.lastScan };
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
   private generateCode(): string {
     // 6 chars from A-Z0-9, skip confusing I/O/0/1
