@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { EdgeDevice } from './entities/edge-device.entity';
+import { CamerasService } from '../cameras/cameras.service';
+import { LightsService } from '../lights/lights.service';
+import { GateService } from '../gate/gate.service';
+import { AlarmService } from '../alarm/alarm.service';
+import { EventsService } from '../events/events.service';
 
 /**
  * Aggregates a tiny snapshot of home state tailored for the ESP32 LCD.
@@ -15,11 +20,12 @@ export class EdgeStateService {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  /** Lazy-resolve a service by class name to avoid circular module imports. */
-  private lookup<T>(name: string): T | null {
+  /** Lazy-resolve a service by class reference to avoid circular module imports. */
+  private lookup<T>(cls: any): T | null {
     try {
-      return this.moduleRef.get(name, { strict: false }) as T;
-    } catch {
+      return this.moduleRef.get(cls, { strict: false }) as T;
+    } catch (e: any) {
+      this.logger.debug(`Edge state lookup ${cls?.name} failed: ${e?.message}`);
       return null;
     }
   }
@@ -28,11 +34,11 @@ export class EdgeStateService {
     const now = new Date();
     const time = now.toTimeString().slice(0, 5);
 
-    const cameras    = this.lookup<any>('CamerasService');
-    const lights     = this.lookup<any>('LightsService');
-    const gate       = this.lookup<any>('GateService');
-    const alarm      = this.lookup<any>('AlarmService');
-    const events     = this.lookup<any>('EventsService');
+    const cameras = this.lookup<CamerasService>(CamerasService);
+    const lights  = this.lookup<LightsService>(LightsService);
+    const gate    = this.lookup<GateService>(GateService);
+    const alarm   = this.lookup<AlarmService>(AlarmService);
+    const events  = this.lookup<EventsService>(EventsService);
 
     // Run everything in parallel, tolerate partial failures
     const [camStats, lightStats, gateStatus, alarmSummary, lastEvt] =
